@@ -28,6 +28,58 @@ $ npm start
 
 or (using node) `$ node .` or even `$ node dist/index.cjs`
 
+## Future improvements
+
+### Change the mask-blend method
+
+Performing a _XOR_ blend is not exactly appropriate for a bunch of edge-cases.
+
+To fully understand why, let's first understand how the _XOR_ blend works in the first place.
+
+When performing the blend, each pixel is xor'ed individually. Each pixel is made of 4 channels : R, G, B and A (alpha) for transparency. Each channel is represented as a 256 bit word, which is going to be xor'ed to the same channel from the corresponding pixel in the mask.
+
+We have a mask with a white and transparent disk, and a black opaque contour.
+
+Pixels on the disc will stay the same, since xor'ing with zero returns the same value, and the mask's pixels there are all at `(0, 0, 0, 0)` (transparent white).
+
+However, pixels outside the disc in the mask have the following value `(0, 0, 0, 255)`. Colors (RGB) channels will stay the same, but the alpha channel will change. The XOR operation returns 1 if the bits are different and 0 if they are the same.
+
+This means that fully opaque pixels from the source image will become fully transparent :
+
+```
+Alpha-channel XOR :
+
+   11111111 <- source is opaque
+X  11111111 <- mask is opaque (contour)
+------------
+   00000000 <- output is transparent
+```
+
+But if for some reason, the source image has some transparent or (worse) semi-transparent pixels, those won't be handled properly :
+
+```
+Alpha-channel XOR :
+
+   11011010 <- source is (218/255)% opaque
+X  11111111 <- mask is opaque (contour)
+------------
+   00100101 <- output is (37/255)% opaque
+```
+
+The problem here is pretty clear : the output would **not** be fully transparent.
+
+A proper solution would probably be to use a different (and proper) blend method.
+
+### Inconsistant compression
+
+Non-PNG source images are converted to PNG using a fast convertion provided by [`sharp`](https://sharp.pixelplumbing.com/api-output#png).
+
+However, PNG images are kept as-is, and are not subject to the convertion-compression.
+
+This causes inconsistant image-quality between source-formats (despite every image being resized to the save pixel-size).
+
+A solution could be spending more time converting source images in order to output the best quality possible.
+
 ## Installation (build from source)
 
 To build the package from source, you will need the following :
