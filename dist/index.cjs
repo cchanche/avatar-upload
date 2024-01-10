@@ -4734,7 +4734,7 @@ const createMask = async (params, options) => {
             // centered on the image-center, the circle has a radius of half the image's size
             distanceToCenter > imageSize / 2
                 ? [0, 0, 0, 255] // opaque black
-                : [255, 255, 255, 0]; // transparent (white)
+                : [0, 0, 0, 0]; // transparent (white)
             // Insert color
             for (let c = 0; c < maskData.info.channels; c++) {
                 pixelArray[currentPixelIsAt + c] = color[c];
