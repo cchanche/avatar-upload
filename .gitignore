@@ -30,3 +30,4 @@ scripts/**/assets
 # build assets
 input
 output
+tmp

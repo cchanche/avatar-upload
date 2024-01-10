@@ -10,6 +10,7 @@ export default {
     file: 'dist/index.cjs',
     format: 'cjs',
   },
+  external: ['sharp'],
 
   // Prevent warning from the bundling of jimp
   onwarn: (warning, defaultHandler) => {
@@ -17,7 +18,7 @@ export default {
       defaultHandler(warning);
     }
   },
-  
+
   plugins: [
     typescript(),
     commonjs(),
