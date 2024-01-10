@@ -1,10 +1,6 @@
 import { create } from './main-create';
 import { test } from './main-test';
 import { Logger, argparse } from './utils';
-import * as dotenv from 'dotenv';
-
-// Parse .env into process.env
-dotenv.config();
 
 export const handler = (async () => {
   const logger = new Logger('avatar');
