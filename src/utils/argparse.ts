@@ -4,30 +4,59 @@ import { Logger } from './logger';
 export const argparse = (options?: { logger?: Logger }) => {
   const { logger } = options || {};
 
-  const parser = new ArgumentParser({
-    description: 'Populate all package env variables using nodejs',
-  });
+  const mainParser = new ArgumentParser();
 
-  type Args = {
+  type MainArgs = {
+    subparser_name: 'create' | 'test';
+  };
+  type CreateArgs = {
+    size: string;
+  };
+  type TestArgs = {
     size: string;
   };
 
-  const defaultArgs: Args = { size: '512' };
+  const defaultCreateArgs: CreateArgs = { size: '512' };
+  const defaultTestArgs: TestArgs = { size: '512' };
 
-  parser.add_argument('-s', '--size', {
-    help: "The image's dimension",
-    default: defaultArgs.size,
+  const subparsers = mainParser.add_subparsers({
+    help: 'this is helpful',
+    dest: 'subparser_name',
+    required: true,
   });
 
-  const args: Args = Object.assign({}, parser.parse_args());
+  const createParser = subparsers.add_parser('create', {
+    help: 'Create badges from input folder',
+  });
+  const testParser = subparsers.add_parser('test', {
+    help: 'Test images from the given folder are badges',
+  });
 
+  createParser.add_argument('-s', '--size', {
+    help: "The image's dimension",
+    default: defaultCreateArgs.size,
+  });
+
+  testParser.add_argument('-s', '--size', {
+    help: "The image's dimension",
+    default: defaultTestArgs.size,
+  });
+
+  const mainArgs: MainArgs & CreateArgs & TestArgs = Object.assign(
+    {},
+    mainParser.parse_args(),
+  );
+
+  // Parse image-size
   let size: number | undefined = undefined;
+  const defaultArgs =
+    mainArgs.subparser_name === 'create' ? defaultCreateArgs : defaultTestArgs;
   try {
-    size = parseInt(args.size);
+    size = parseInt(mainArgs.size);
   } catch (err) {
     logger?.warn(`Could not parse the size from given string : "${size}"`);
     logger?.warn(`Using default size instead : "${defaultArgs.size}"`);
   }
 
-  return { imageSize: size || 512 };
+  return { imageSize: size || 512, program: mainArgs.subparser_name };
 };

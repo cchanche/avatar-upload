@@ -2,11 +2,11 @@
 
 var path$1 = require('path');
 var fs$1 = require('fs');
+var sharp = require('sharp');
 var require$$0$1 = require('assert');
 var require$$0 = require('util');
 var require$$2 = require('os');
 var require$$3 = require('crypto');
-var sharp = require('sharp');
 
 function _interopNamespaceDefault(e) {
     var n = Object.create(null);
@@ -27,6 +27,250 @@ function _interopNamespaceDefault(e) {
 
 var path__namespace = /*#__PURE__*/_interopNamespaceDefault(path$1);
 var fs__namespace = /*#__PURE__*/_interopNamespaceDefault(fs$1);
+
+const getIOFolders = (options) => {
+    const { logger } = options || {};
+    const IMG_INPUT_FOLDER = options?.folderName?.input || 'input';
+    const IMG_INPUT_FOLDER_PATH = path__namespace.resolve(IMG_INPUT_FOLDER);
+    const IMG_OUTPUT_FOLDER = options?.folderName?.output || 'output';
+    const IMG_OUTPUT_FOLDER_PATH = path__namespace.resolve(IMG_OUTPUT_FOLDER);
+    // Check input & output folders
+    if (!fs__namespace.existsSync(IMG_INPUT_FOLDER_PATH)) {
+        logger?.log('Source folder does not exists. Creating...');
+        fs__namespace.mkdirSync(IMG_INPUT_FOLDER_PATH);
+        logger?.log('Created folder ' + IMG_INPUT_FOLDER_PATH);
+        logger?.warn(`Please copy your input files to ${IMG_INPUT_FOLDER_PATH}`);
+        process.exit(1);
+    }
+    else {
+        logger?.log('Input folder is at ' + IMG_INPUT_FOLDER_PATH);
+    }
+    if (!fs__namespace.existsSync(IMG_OUTPUT_FOLDER_PATH)) {
+        logger?.log('Output folder does not exists. Creating...');
+        fs__namespace.mkdirSync(IMG_OUTPUT_FOLDER_PATH);
+        logger?.log('Created folder ' + IMG_OUTPUT_FOLDER_PATH);
+    }
+    else {
+        logger?.log('Output folder is at ' + IMG_OUTPUT_FOLDER_PATH);
+    }
+    return { IMG_INPUT_FOLDER_PATH, IMG_OUTPUT_FOLDER_PATH };
+};
+
+/**
+ * Perform the euclidian distance between two points
+ * @see https://en.wikipedia.org/wiki/Euclidean_distance
+ */
+const getDistance = (point1, point2) => {
+    return Math.sqrt(Math.pow(point1[0] - point2[0], 2) + Math.pow(point1[1] - point2[1], 2));
+};
+
+const createMask = async (params, options) => {
+    const { imageSize } = params || {};
+    const { logger, tempFolderName } = options || {};
+    const maskColor = {
+        outer: [0, 0, 0, 255],
+        inner: [0, 0, 0, 0], // transparent (white)
+    };
+    let mask = sharp({
+        create: {
+            width: imageSize,
+            height: imageSize,
+            channels: 4,
+            background: { r: 0, g: 0, b: 0, alpha: 255 },
+        },
+    });
+    const center = [imageSize / 2, imageSize / 2];
+    const maskData = await mask.raw().toBuffer({ resolveWithObject: true });
+    const pixelArray = new Uint8ClampedArray(maskData.data);
+    const pixelArraySize = imageSize * imageSize * 4;
+    if (pixelArraySize !== pixelArray.length) {
+        logger?.warn('There was a problem creating the mask');
+        process.exit(1);
+    }
+    // White circle inside black background
+    let currentPixelIsAt = 0;
+    for (let x = 0; x < imageSize; x++) {
+        for (let y = 0; y < imageSize; y++) {
+            const distanceToCenter = getDistance(center, [x, y]);
+            // centered on the image-center, the circle has a radius of half the image's size
+            const shouldBeTransparent = distanceToCenter > imageSize / 2;
+            const color = shouldBeTransparent ? maskColor.outer : maskColor.inner;
+            // Insert color
+            for (let c = 0; c < maskData.info.channels; c++) {
+                pixelArray[currentPixelIsAt + c] = color[c];
+            }
+            // Increment pixel intex
+            currentPixelIsAt += maskData.info.channels;
+        }
+    }
+    // Parse-back the modified pixel-array
+    const { width, height, channels } = maskData.info;
+    mask = sharp(pixelArray, { raw: { width, height, channels } });
+    // Save mask
+    const OUTPUT_FOLDER_PATH = tempFolderName || 'tmp';
+    if (!fs__namespace.existsSync(OUTPUT_FOLDER_PATH)) {
+        logger?.log('Mask-output folder does not exists. Creating...');
+        fs__namespace.mkdirSync(OUTPUT_FOLDER_PATH);
+        logger?.log('Created folder ' + OUTPUT_FOLDER_PATH);
+    }
+    const maskFilePath = path__namespace.join(OUTPUT_FOLDER_PATH, `badge-mask.png`);
+    await mask.toFile(maskFilePath);
+    logger?.log(`Wrote mask to ${maskFilePath}`);
+    return { maskFilePath, maskColor };
+};
+
+const createBadge = async (params, options) => {
+    const { imageSize, sourceImageFilePath, outputDirectoryPath, maskFilePath } = params || {};
+    const { logger } = options || {};
+    const fileEntry = path__namespace.parse(path__namespace.basename(sourceImageFilePath));
+    // Read & convert to png with sharp
+    logger?.log(`Process : ${fileEntry.base}...`);
+    const image = sharp(path__namespace.resolve(sourceImageFilePath));
+    const meta = await image.metadata();
+    if (meta.format !== 'png') {
+        logger?.log(`  Detected file format : ${meta.format}`);
+        logger?.log(`  Convert to png...`);
+        image.png({
+            palette: true,
+            quality: 50, // be fast
+        });
+    }
+    // no-op if the image already has an alpha channel
+    image.ensureAlpha(); // ensure alpha-transparency
+    /**
+     * Scale the image some, potentially clipping some parts
+     *
+     * @see https://sharp.pixelplumbing.com/api-resize
+     */
+    image.resize(imageSize, imageSize, { fit: 'cover' });
+    // Mask the image with another (from top-left corner)
+    image.composite([{ input: maskFilePath, blend: 'xor' }]);
+    const writeFilePath = path__namespace.join(outputDirectoryPath, `${fileEntry.name}_badge.png`);
+    // Save and overwrite the image
+    await image.toFile(writeFilePath);
+    logger?.log(`  Wrote file ${writeFilePath}`);
+};
+
+const checkIsBadge = async (params, options) => {
+    const { imageSize, sourceImageFilePath, maskFilePath, maskColor } = params || {};
+    const { logger } = options || {};
+    const fileEntry = path__namespace.parse(path__namespace.basename(sourceImageFilePath));
+    // Read & convert to png with sharp
+    logger?.log(`Process : ${fileEntry.base}...`);
+    const image = sharp(path__namespace.resolve(sourceImageFilePath));
+    const meta = await image.metadata();
+    if (meta.format !== 'png') {
+        throw new Error('Image format is incorrect');
+    }
+    if (meta.channels !== 4) {
+        throw new Error('Image does not support transparency');
+    }
+    if (meta.height !== imageSize) {
+        throw new Error('Image height is incorrect');
+    }
+    if (meta.width !== imageSize) {
+        throw new Error('Image Width is incorrect');
+    }
+    // Check that individual pixels match the mask
+    const imageData = await image.raw().toBuffer({ resolveWithObject: true });
+    const pixelArray = new Uint8ClampedArray(imageData.data);
+    const maskData = await sharp(maskFilePath)
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+    const maskPixelArray = new Uint8ClampedArray(maskData.data);
+    const pixelArraySize = imageSize * imageSize * 4;
+    if (pixelArraySize !== pixelArray.length ||
+        pixelArraySize !== maskPixelArray.length) {
+        throw new Error('There was a problem fetching raw data');
+    }
+    let currentPixelIsAt = 0;
+    for (let x = 0; x < imageSize; x++) {
+        for (let y = 0; y < imageSize; y++) {
+            const maskRChannel = maskPixelArray[currentPixelIsAt + 0];
+            const maskGChannel = maskPixelArray[currentPixelIsAt + 1];
+            const maskBChannel = maskPixelArray[currentPixelIsAt + 2];
+            const maskAChannel = maskPixelArray[currentPixelIsAt + 3];
+            const imagAChannel = pixelArray[currentPixelIsAt + 3];
+            // Whether currentPixel in the mask is in the outer section of the mask
+            const shouldBeTransparent = maskRChannel === maskColor.outer.at(0) &&
+                maskGChannel === maskColor.outer.at(1) &&
+                maskBChannel === maskColor.outer.at(2) &&
+                maskAChannel === maskColor.outer.at(3);
+            if (shouldBeTransparent) {
+                // Whether currentPixel in the image is transparent
+                const isCurrentTransparent = imagAChannel === 0;
+                if (!isCurrentTransparent) {
+                    throw new Error(`Pixel at [${x}, ${y}] does not have the correct alpha-value`);
+                }
+            }
+            // Increment pixel intex
+            currentPixelIsAt += meta.channels;
+        }
+    }
+};
+
+const create = async (params, options) => {
+    const { imageSize } = params;
+    const { logger } = options || {};
+    const { IMG_INPUT_FOLDER_PATH, IMG_OUTPUT_FOLDER_PATH } = getIOFolders({
+        logger,
+    });
+    logger?.log('Reading image entries...');
+    const entries = fs__namespace.readdirSync(IMG_INPUT_FOLDER_PATH, {
+        withFileTypes: true,
+    });
+    const images = entries.filter((e) => e.isFile());
+    logger?.log('Found images :');
+    for (const img of images) {
+        logger?.log(`  ${img.name}`);
+    }
+    const { maskFilePath } = await createMask({ imageSize }, { logger });
+    // Process input images
+    for (const dirent of images) {
+        await createBadge({
+            imageSize,
+            maskFilePath,
+            outputDirectoryPath: IMG_OUTPUT_FOLDER_PATH,
+            sourceImageFilePath: path__namespace.join(IMG_INPUT_FOLDER_PATH, dirent.name),
+        }, { logger });
+    }
+};
+
+const test = async (params, options) => {
+    const { imageSize } = params;
+    const { logger } = options || {};
+    const { IMG_INPUT_FOLDER_PATH, IMG_OUTPUT_FOLDER_PATH } = getIOFolders({
+        logger,
+    });
+    logger?.log('Reading image entries...');
+    const entries = fs__namespace.readdirSync(IMG_INPUT_FOLDER_PATH, {
+        withFileTypes: true,
+    });
+    const images = entries.filter((e) => e.isFile());
+    logger?.log('Found images :');
+    for (const img of images) {
+        logger?.log(`  ${img.name}`);
+    }
+    const { maskFilePath, maskColor } = await createMask({ imageSize }, { logger });
+    // Process input images
+    for (const dirent of images) {
+        try {
+            await checkIsBadge({
+                imageSize,
+                maskColor,
+                maskFilePath,
+                sourceImageFilePath: path__namespace.join(IMG_INPUT_FOLDER_PATH, dirent.name),
+            }, { logger });
+        }
+        catch (err) {
+            logger?.warn(err.message);
+            continue;
+        }
+        // File is a badge, copy
+        logger?.log(`${dirent.name} is a badge, copying...`);
+        fs__namespace.copyFileSync(path__namespace.join(IMG_INPUT_FOLDER_PATH, dirent.name), path__namespace.join(IMG_OUTPUT_FOLDER_PATH, dirent.name));
+    }
+};
 
 var argparse$1 = {exports: {}};
 
@@ -4235,24 +4479,40 @@ var argparseExports = argparse$1.exports;
 
 const argparse = (options) => {
     const { logger } = options || {};
-    const parser = new argparseExports.ArgumentParser({
-        description: 'Populate all package env variables using nodejs',
+    const mainParser = new argparseExports.ArgumentParser();
+    const defaultCreateArgs = { size: '512' };
+    const defaultTestArgs = { size: '512' };
+    const subparsers = mainParser.add_subparsers({
+        help: 'this is helpful',
+        dest: 'subparser_name',
+        required: true,
     });
-    const defaultArgs = { size: '512' };
-    parser.add_argument('-s', '--size', {
+    const createParser = subparsers.add_parser('create', {
+        help: 'Create badges from input folder',
+    });
+    const testParser = subparsers.add_parser('test', {
+        help: 'Test images from the given folder are badges',
+    });
+    createParser.add_argument('-s', '--size', {
         help: "The image's dimension",
-        default: defaultArgs.size,
+        default: defaultCreateArgs.size,
     });
-    const args = Object.assign({}, parser.parse_args());
+    testParser.add_argument('-s', '--size', {
+        help: "The image's dimension",
+        default: defaultTestArgs.size,
+    });
+    const mainArgs = Object.assign({}, mainParser.parse_args());
+    // Parse image-size
     let size = undefined;
+    const defaultArgs = mainArgs.subparser_name === 'create' ? defaultCreateArgs : defaultTestArgs;
     try {
-        size = parseInt(args.size);
+        size = parseInt(mainArgs.size);
     }
     catch (err) {
         logger?.warn(`Could not parse the size from given string : "${size}"`);
         logger?.warn(`Using default size instead : "${defaultArgs.size}"`);
     }
-    return { imageSize: size || 512 };
+    return { imageSize: size || 512, program: mainArgs.subparser_name };
 };
 
 /**
@@ -4669,156 +4929,20 @@ main$1.exports.populate = DotenvModule.populate;
 
 main$1.exports = DotenvModule;
 
-const getIOFolders = (options) => {
-    const { logger } = options || {};
-    const IMG_INPUT_FOLDER = options?.folderName?.input || 'input';
-    const IMG_INPUT_FOLDER_PATH = path__namespace.resolve(IMG_INPUT_FOLDER);
-    const IMG_OUTPUT_FOLDER = options?.folderName?.output || 'output';
-    const IMG_OUTPUT_FOLDER_PATH = path__namespace.resolve(IMG_OUTPUT_FOLDER);
-    // Check input & output folders
-    if (!fs__namespace.existsSync(IMG_INPUT_FOLDER_PATH)) {
-        logger?.log('Source folder does not exists. Creating...');
-        fs__namespace.mkdirSync(IMG_INPUT_FOLDER_PATH);
-        logger?.log('Created folder ' + IMG_INPUT_FOLDER_PATH);
-        logger?.warn(`Please copy your input files to ${IMG_INPUT_FOLDER_PATH}`);
-        process.exit(1);
-    }
-    else {
-        logger?.log('Input folder is at ' + IMG_INPUT_FOLDER_PATH);
-    }
-    if (!fs__namespace.existsSync(IMG_OUTPUT_FOLDER_PATH)) {
-        logger?.log('Output folder does not exists. Creating...');
-        fs__namespace.mkdirSync(IMG_OUTPUT_FOLDER_PATH);
-        logger?.log('Created folder ' + IMG_OUTPUT_FOLDER_PATH);
-    }
-    else {
-        logger?.log('Output folder is at ' + IMG_OUTPUT_FOLDER_PATH);
-    }
-    return { IMG_INPUT_FOLDER_PATH, IMG_OUTPUT_FOLDER_PATH };
-};
-
-/**
- * Perform the euclidian distance between two points
- * @see https://en.wikipedia.org/wiki/Euclidean_distance
- */
-const getDistance = (point1, point2) => {
-    return Math.sqrt(Math.pow(point1[0] - point2[0], 2) + Math.pow(point1[1] - point2[1], 2));
-};
-
-const createMask = async (params, options) => {
-    const { imageSize } = params || {};
-    const { logger, tempFolderName } = options || {};
-    let mask = sharp({
-        create: {
-            width: imageSize,
-            height: imageSize,
-            channels: 4,
-            background: { r: 0, g: 0, b: 0, alpha: 1 },
-        },
-    });
-    const center = [imageSize / 2, imageSize / 2];
-    const maskData = await mask.raw().toBuffer({ resolveWithObject: true });
-    const pixelArray = new Uint8ClampedArray(maskData.data);
-    const pixelArraySize = imageSize * imageSize * 4;
-    if (pixelArraySize !== pixelArray.length) {
-        logger?.warn('There was a problem creating the mask');
-        process.exit(1);
-    }
-    // White circle inside black background
-    let currentPixelIsAt = 0;
-    for (let x = 0; x < imageSize; x++) {
-        for (let y = 0; y < imageSize; y++) {
-            const distanceToCenter = getDistance(center, [x, y]);
-            // TOFIX: only works with 4 bands channels
-            const color = 
-            // centered on the image-center, the circle has a radius of half the image's size
-            distanceToCenter > imageSize / 2
-                ? [0, 0, 0, 255] // opaque black
-                : [0, 0, 0, 0]; // transparent (white)
-            // Insert color
-            for (let c = 0; c < maskData.info.channels; c++) {
-                pixelArray[currentPixelIsAt + c] = color[c];
-            }
-            // Increment pixel intex
-            currentPixelIsAt += maskData.info.channels;
-        }
-    }
-    // Parse-back the modified pixel-array
-    const { width, height, channels } = maskData.info;
-    mask = sharp(pixelArray, { raw: { width, height, channels } });
-    // Save mask
-    const OUTPUT_FOLDER_PATH = tempFolderName || 'tmp';
-    if (!fs__namespace.existsSync(OUTPUT_FOLDER_PATH)) {
-        logger?.log('Mask-output folder does not exists. Creating...');
-        fs__namespace.mkdirSync(OUTPUT_FOLDER_PATH);
-        logger?.log('Created folder ' + OUTPUT_FOLDER_PATH);
-    }
-    const maskFilePath = path__namespace.join(OUTPUT_FOLDER_PATH, `badge-mask.png`);
-    await mask.toFile(maskFilePath);
-    logger?.log(`Wrote mask to ${maskFilePath}`);
-    return { maskFilePath };
-};
-
-const createBadge = async (params, options) => {
-    const { imageSize, sourceImageFilePath, outputDirectoryPath, maskFilePath } = params || {};
-    const { logger } = options || {};
-    const fileEntry = path__namespace.parse(path__namespace.basename(sourceImageFilePath));
-    // Read & convert to png with sharp
-    logger?.log(`Process : ${fileEntry.base}...`);
-    const image = sharp(path__namespace.resolve(sourceImageFilePath));
-    const meta = await image.metadata();
-    if (meta.format !== 'png') {
-        logger?.log(`  Detected file format : ${meta.format}`);
-        logger?.log(`  Convert to png...`);
-        image.png({
-            palette: true,
-            quality: 50, // be fast
-        });
-    }
-    // no-op if the image already has an alpha channel
-    image.ensureAlpha(); // ensure alpha-transparency
-    /**
-     * Scale the image some, potentially clipping some parts
-     *
-     * @see https://sharp.pixelplumbing.com/api-resize
-     */
-    image.resize(imageSize, imageSize, { fit: 'cover' });
-    // Mask the image with another (from top-left corner)
-    image.composite([{ input: maskFilePath, blend: 'xor' }]);
-    const writeFilePath = path__namespace.join(outputDirectoryPath, `${fileEntry.name}_badge.png`);
-    // Save and overwrite the image
-    await image.toFile(writeFilePath);
-    logger?.log(`  Wrote file ${writeFilePath}`);
-};
-
 // Parse .env into process.env
 config_1();
 const handler = (async () => {
-    const logger = new Logger('image-upload');
-    const { imageSize } = argparse({
+    const logger = new Logger('avatar');
+    const { imageSize, program } = argparse({
         logger,
     });
-    const { IMG_INPUT_FOLDER_PATH, IMG_OUTPUT_FOLDER_PATH } = getIOFolders({
-        logger,
-    });
-    logger.log('Reading image entries...');
-    const entries = fs__namespace.readdirSync(IMG_INPUT_FOLDER_PATH, {
-        withFileTypes: true,
-    });
-    const images = entries.filter((e) => e.isFile());
-    logger.log('Found images :');
-    for (const img of images) {
-        logger.log(`  ${img.name}`);
-    }
-    const { maskFilePath } = await createMask({ imageSize }, { logger });
-    // Process input images
-    for (const dirent of images) {
-        await createBadge({
-            imageSize,
-            maskFilePath,
-            outputDirectoryPath: IMG_OUTPUT_FOLDER_PATH,
-            sourceImageFilePath: path__namespace.join(IMG_INPUT_FOLDER_PATH, dirent.name),
-        }, { logger });
+    switch (program) {
+        case 'create':
+            await create({ imageSize, program }, { logger });
+            break;
+        case 'test':
+            await test({ imageSize, program }, { logger });
+            break;
     }
 })();
 

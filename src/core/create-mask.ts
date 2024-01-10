@@ -4,6 +4,8 @@ import * as path from 'path';
 import { getDistance } from '.';
 import * as fs from 'fs';
 
+export type ArrayColor = [number, number, number, number];
+
 export const createMask = async (
   params: { imageSize: number },
   options?: { logger?: Logger; tempFolderName?: string },
@@ -11,19 +13,23 @@ export const createMask = async (
   const { imageSize } = params || {};
   const { logger, tempFolderName } = options || {};
 
+  const maskColor: { inner: ArrayColor; outer: ArrayColor } = {
+    outer: [0, 0, 0, 255], // opaque black
+    inner: [0, 0, 0, 0], // transparent (white)
+  };
+
   let mask = sharp({
     create: {
       width: imageSize,
       height: imageSize,
       channels: 4,
-      background: { r: 0, g: 0, b: 0, alpha: 1 },
+      background: { r: 0, g: 0, b: 0, alpha: 255 },
     },
   });
 
   const center: [number, number] = [imageSize / 2, imageSize / 2];
 
   const maskData = await mask.raw().toBuffer({ resolveWithObject: true });
-
   const pixelArray = new Uint8ClampedArray(maskData.data);
 
   const pixelArraySize = imageSize * imageSize * 4;
@@ -38,12 +44,10 @@ export const createMask = async (
     for (let y = 0; y < imageSize; y++) {
       const distanceToCenter = getDistance(center, [x, y]);
 
-      // TOFIX: only works with 4 bands channels
-      const color =
-        // centered on the image-center, the circle has a radius of half the image's size
-        distanceToCenter > imageSize / 2
-          ? [0, 0, 0, 255] // opaque black
-          : [0, 0, 0, 0]; // transparent (white)
+      // centered on the image-center, the circle has a radius of half the image's size
+      const shouldBeTransparent = distanceToCenter > imageSize / 2;
+
+      const color = shouldBeTransparent ? maskColor.outer : maskColor.inner;
 
       // Insert color
       for (let c = 0; c < maskData.info.channels; c++) {
@@ -72,5 +76,5 @@ export const createMask = async (
 
   logger?.log(`Wrote mask to ${maskFilePath}`);
 
-  return { maskFilePath };
+  return { maskFilePath, maskColor };
 };
