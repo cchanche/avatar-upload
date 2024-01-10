@@ -26,7 +26,12 @@ Copy your image library inside an `images` folder, and run :
 $ npm start
 ```
 
-or (using node) `$ node .` or even `$ node dist/index.cjs`
+or (using node) `$ node .` or even `$ node dist/index.cjs`.
+
+From there you will be guided by the CLI into which program to use. Available programs are :
+
+- `test` the _test-function_
+- `create` the _utility-function_
 
 ## Future improvements
 
