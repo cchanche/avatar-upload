@@ -20,7 +20,7 @@ Only NodeJs version 18 is required. Preferably install through [`nvm`](https://n
 
 ## Usage
 
-Copy your image library inside an `images` folder, and run :
+Copy your images inside an `input` folder, and run :
 
 ```bash
 $ npm start
@@ -30,8 +30,8 @@ or (using node) `$ node .` or even `$ node dist/index.cjs`.
 
 From there you will be guided by the CLI into which program to use. Available programs are :
 
-- `test` the _test-function_
-- `create` the _utility-function_
+- `test` the _test-function_ -> will expect badge-like images from `input/`
+- `create` the _utility-function_ -> will take any compatible image from `input/`
 
 ## Future improvements
 
