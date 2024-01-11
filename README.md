@@ -10,6 +10,7 @@ It features :
 
 - A test-function to check wether a given badge meets the required format
   - For instance : 510x510 size, a round transparent mask, and file format is `png`
+  - And returns a _happy-score_ based on the image's colors.
 - A utility-function to convert any given image to an avatar given a specific format
   - For instance : 510x510 size, a round transparent mask, and convert to `png`
   - Compatible file formats are : JPEG, PNG, WebP, AVIF (limited to 8-bit depth), TIFF, GIF and SVG (input)
