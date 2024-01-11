@@ -16,7 +16,15 @@ It features :
 
 ## Installation
 
-Only NodeJs version 18 is required. Preferably install through [`nvm`](https://nodejs.org/en/download/package-manager#nvm).
+NodeJs version 18 is required. Preferably install through [`nvm`](https://nodejs.org/en/download/package-manager#nvm).
+
+Once you have nodejs, you'll also have it's default package-manager ready. Use it to install the prod-dependencies :
+
+```bash
+$ NODE_ENV=production npm i
+```
+
+> The bundler cannot bundle every dependency in the output build, since the dependencies inclue some native binaries (eg. [`sharp`](https://www.npmjs.com/package/sharp))
 
 ## Usage
 
@@ -34,6 +42,14 @@ From there you will be guided by the CLI into which program to use. Available pr
 - `create` the _utility-function_ -> will take any compatible image from `input/`
 
 ## Future improvements
+
+### Happy-score calculation
+
+The score is computed given highly arbitrary metrics, that stipulate that bright, saturated and warn colors give a higher "happy" feeling than other colors.
+
+This method could benefit some more investigation to determine more accurately what a "happy" image is.
+
+One solution might even simply be to use an pre-trained machine-learning models like [CLIP](https://github.com/mlfoundations/open_clip).
 
 ### Change the mask-blend method
 
