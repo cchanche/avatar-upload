@@ -149,6 +149,24 @@ const createBadge = async (params, options) => {
     logger?.log(`  Wrote file ${writeFilePath}`);
 };
 
+const getColorScore = (params) => {
+    if (params.metric === 'happy') {
+        const hsv = rgb2hsl(params.color[0], params.color[1], params.color[2]);
+        // Hue score (warmness)
+        const bestWarmnessHue = 0;
+        const worstWarmnessHue = 180;
+        const closeToBestBy = Math.min(Math.abs(hsv.h - 360 + bestWarmnessHue), Math.abs(hsv.h + bestWarmnessHue));
+        const warmScore = 1 - closeToBestBy / worstWarmnessHue;
+        // Saturation score (saturated colors are happier)
+        const satScore = hsv.s;
+        // Lightness score (not too bright & not too dark colors are happier)
+        const lumScore = 1 - Math.abs((hsv.l - 0.5) / 0.5);
+        return (warmScore + satScore + lumScore) / 3;
+    }
+    else
+        return 0;
+};
+
 const checkIsBadge = async (params, options) => {
     const { imageSize, sourceImageFilePath, maskFilePath, maskColor } = params || {};
     const { logger } = options || {};
@@ -172,6 +190,7 @@ const checkIsBadge = async (params, options) => {
     // Check that individual pixels match the mask
     const imageData = await image.raw().toBuffer({ resolveWithObject: true });
     const pixelArray = new Uint8ClampedArray(imageData.data);
+    const happyScoreArray = new Uint8ClampedArray(new Array(imageData.data.length / 4));
     const maskData = await sharp(maskFilePath)
         .raw()
         .toBuffer({ resolveWithObject: true });
@@ -201,11 +220,38 @@ const checkIsBadge = async (params, options) => {
                     throw new Error(`Pixel at [${x}, ${y}] does not have the correct alpha-value`);
                 }
             }
+            happyScoreArray[currentPixelIsAt] = getColorScore({
+                color: [
+                    pixelArray[currentPixelIsAt + 0] / 255,
+                    pixelArray[currentPixelIsAt + 1] / 255,
+                    pixelArray[currentPixelIsAt + 2] / 255,
+                ],
+                metric: 'happy',
+            });
             // Increment pixel intex
             currentPixelIsAt += meta.channels;
         }
     }
+    return {
+        happyScore: happyScoreArray.reduce((a, b) => a + b) / happyScoreArray.length,
+    };
 };
+
+/**
+ * Convert rgb color to hsv color-space
+ *
+ * Individual channels have to be between 0 and 1
+ *
+ * @returns h in [0, 360], s, l in [0, 1]
+ *
+ * Shamelessly stolen from :
+ * @see https://stackoverflow.com/a/54070620/15720810
+ */
+function rgb2hsl(r, g, b) {
+    const v = Math.max(r, g, b), c = v - Math.min(r, g, b), f = 1 - Math.abs(v + v - c - 1);
+    const h = c && (v == r ? (g - b) / c : v == g ? 2 + (b - r) / c : 4 + (r - g) / c);
+    return { h: 60 * (h < 0 ? h + 6 : h), s: f ? c / f : 0, l: (v + v - c) / 2 };
+}
 
 const create = async (params, options) => {
     const { imageSize } = params;
@@ -252,13 +298,14 @@ const test = async (params, options) => {
     const { maskFilePath, maskColor } = await createMask({ imageSize }, { logger });
     // Process input images
     for (const dirent of images) {
+        let happyScore = undefined;
         try {
-            await checkIsBadge({
+            happyScore = (await checkIsBadge({
                 imageSize,
                 maskColor,
                 maskFilePath,
                 sourceImageFilePath: path__namespace.join(IMG_INPUT_FOLDER_PATH, dirent.name),
-            }, { logger });
+            }, { logger })).happyScore;
         }
         catch (err) {
             logger?.warn(err.message);
@@ -266,6 +313,7 @@ const test = async (params, options) => {
         }
         // File is a badge, copy
         logger?.log(`${dirent.name} is a badge, copying...`);
+        logger?.log(`${dirent.name} has a happy-score of: ${Math.round(happyScore * 100)}%`);
         fs__namespace.copyFileSync(path__namespace.join(IMG_INPUT_FOLDER_PATH, dirent.name), path__namespace.join(IMG_OUTPUT_FOLDER_PATH, dirent.name));
     }
 };

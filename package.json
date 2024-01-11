@@ -20,10 +20,10 @@
   },
   "license": "ISC",
   "dependencies": {
-    "argparse": "^2.0.1",
     "sharp": "0.32.6"
   },
   "devDependencies": {
+    "argparse": "^2.0.1",
     "@rollup/plugin-commonjs": "^25.0.7",
     "@rollup/plugin-json": "^6.0.1",
     "@rollup/plugin-node-resolve": "^15.2.3",

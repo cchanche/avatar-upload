@@ -5,9 +5,6 @@ settings:
   excludeLinksFromLockfile: false
 
 dependencies:
-  argparse:
-    specifier: ^2.0.1
-    version: 2.0.1
   sharp:
     specifier: 0.32.6
     version: 0.32.6
@@ -37,6 +34,9 @@ devDependencies:
   '@typescript-eslint/parser':
     specifier: ^6.7.3
     version: 6.7.3(eslint@8.50.0)(typescript@5.1.6)
+  argparse:
+    specifier: ^2.0.1
+    version: 2.0.1
   eslint:
     specifier: ^8.50.0
     version: 8.50.0
@@ -425,6 +425,7 @@ packages:
 
   /argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
+    dev: true
 
   /array-union@2.1.0:
     resolution: {integrity: sha512-HGyxoOTYUyCM6stUe6EJgnd4EoewAI7zMdfqO+kGjnlZmBDz/cR5pf8r/cR4Wq60sL/p0IkcjUEEPwS3GFrIyw==}

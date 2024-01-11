@@ -2,6 +2,7 @@ import { Logger } from '../utils';
 import * as path from 'path';
 import sharp from 'sharp';
 import { ArrayColor } from './create-mask';
+import { getColorScore } from './get-color-score';
 
 export const checkIsBadge = async (
   params: {
@@ -46,6 +47,9 @@ export const checkIsBadge = async (
   // Check that individual pixels match the mask
   const imageData = await image.raw().toBuffer({ resolveWithObject: true });
   const pixelArray = new Uint8ClampedArray(imageData.data);
+  const happyScoreArray = new Uint8ClampedArray(
+    new Array(imageData.data.length / 4),
+  );
 
   const maskData = await sharp(maskFilePath)
     .raw()
@@ -87,8 +91,21 @@ export const checkIsBadge = async (
         }
       }
 
+      happyScoreArray[currentPixelIsAt] = getColorScore({
+        color: [
+          pixelArray[currentPixelIsAt + 0] / 255,
+          pixelArray[currentPixelIsAt + 1] / 255,
+          pixelArray[currentPixelIsAt + 2] / 255,
+        ],
+        metric: 'happy',
+      });
+
       // Increment pixel intex
       currentPixelIsAt += meta.channels;
     }
   }
+  return {
+    happyScore:
+      happyScoreArray.reduce((a, b) => a + b) / happyScoreArray.length,
+  };
 };
