@@ -26,6 +26,7 @@ docker-compose.local.yml
 .dccache
 scripts/**/assets
 **/*.*sql
+.venv
 
 # build assets
 input
